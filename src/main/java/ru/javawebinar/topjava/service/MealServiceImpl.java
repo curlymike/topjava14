@@ -8,6 +8,7 @@ import ru.javawebinar.topjava.model.Meal;
 import ru.javawebinar.topjava.repository.MealRepository;
 import ru.javawebinar.topjava.util.exception.NotFoundException;
 
+import java.time.LocalDate;
 import java.util.Collection;
 
 import static ru.javawebinar.topjava.util.ValidationUtil.checkNotFoundWithId;
@@ -47,6 +48,11 @@ public class MealServiceImpl implements MealService {
             throw new NotFoundException("Attempt to update someone else's meal");
         }
         checkNotFoundWithId(repository.save(meal), meal.getId());
+    }
+
+    @Override
+    public Collection<Meal> getAll(Integer userId, LocalDate from, LocalDate to) {
+        return repository.getAll(userId, from, to);
     }
 
     @Override

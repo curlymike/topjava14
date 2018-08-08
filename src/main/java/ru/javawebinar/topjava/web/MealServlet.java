@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import ru.javawebinar.topjava.model.Meal;
+import ru.javawebinar.topjava.util.DateTimeCheck;
+import ru.javawebinar.topjava.util.DateTimeUtil;
 import ru.javawebinar.topjava.util.MealsUtil;
 import ru.javawebinar.topjava.util.exception.AccessDeniedException;
 import ru.javawebinar.topjava.util.exception.NotFoundException;
@@ -16,9 +18,11 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Objects;
+import java.util.*;
 
 public class MealServlet extends HttpServlet {
     private static final Logger log = LoggerFactory.getLogger(MealServlet.class);
@@ -37,7 +41,14 @@ public class MealServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         request.setCharacterEncoding("UTF-8");
-        response.sendRedirect("meals");
+
+        String queryParams = buildUrlQueryString(dateTimeCheck(request));
+
+        if (queryParams == null) {
+            response.sendRedirect("meals");
+        } else {
+            response.sendRedirect("meals?" + queryParams);
+        }
 
         String op = request.getParameter("op");
 
@@ -77,11 +88,63 @@ public class MealServlet extends HttpServlet {
         }
     }
 
+    private String buildUrlQueryString(DateTimeCheck dtc) {
+        return buildQueryString(dtc, "&");
+    }
+
+    private String buildHtmlQueryString(DateTimeCheck dtc) {
+        return buildQueryString(dtc, "&amp;");
+    }
+
+    private String buildQueryString(DateTimeCheck dtc, String glue) {
+        return String.join(glue, buildQuery(dtc));
+    }
+
+    private DateTimeCheck dateTimeCheck(HttpServletRequest request) {
+        return new DateTimeCheck(
+                DateTimeUtil.parseDate(request.getParameter("dateFrom")),
+                DateTimeUtil.parseDate(request.getParameter("dateTo")),
+                DateTimeUtil.parseTime(request.getParameter("timeFrom")),
+                DateTimeUtil.parseTime(request.getParameter("timeTo"))
+        );
+    }
+
+    private List<String> buildQuery(DateTimeCheck dtc) {
+        String[] params = new String[]{"dateFrom", "dateTo", "timeFrom", "timeTo"};
+        List<String> nameValue = new ArrayList<>();
+        for (String param : params) {
+            String value = null;
+            if (param.startsWith("date")) {
+                value = DateTimeUtil.dateString(dtc.valueByName(param));
+            }
+            if (param.startsWith("time")) {
+                value = DateTimeUtil.timeString(dtc.valueByName(param));
+            }
+            if (value != null && value.length() > 0) {
+                try {
+                    nameValue.add(param + "=" + URLEncoder.encode(value, "UTF-8"));
+                } catch (UnsupportedEncodingException e) {
+                    // whatever
+                }
+            }
+        }
+        return nameValue;
+    }
+
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
 
         request.setAttribute("authUserId", SecurityUtil.authUserId());
         request.setAttribute("userIds", MealsUtil.userIds());
+
+        DateTimeCheck dtc = dateTimeCheck(request);
+
+        request.setAttribute("dateFrom", DateTimeUtil.dateString(dtc.dateFrom()));
+        request.setAttribute("dateTo", DateTimeUtil.dateString(dtc.dateTo()));
+        request.setAttribute("timeFrom", DateTimeUtil.timeString(dtc.timeFrom()));
+        request.setAttribute("timeTo", DateTimeUtil.timeString(dtc.timeTo()));
+
+        request.setAttribute("queryParams", buildHtmlQueryString(dtc));
 
         String action = request.getParameter("action");
 
@@ -107,7 +170,11 @@ public class MealServlet extends HttpServlet {
                 default:
                     log.info("getAll (*)");
                     request.setAttribute("meals",
-                            MealsUtil.getWithExceeded(mealRestController.getAll(SecurityUtil.authUserId()), MealsUtil.DEFAULT_CALORIES_PER_DAY));
+                            MealsUtil.getFilteredWithExceeded(
+                                    mealRestController.getAll(SecurityUtil.authUserId(), dtc.dateFrom(), dtc.dateTo()),
+                                    MealsUtil.DEFAULT_CALORIES_PER_DAY,
+                                    dtc.timeFrom(),
+                                    dtc.timeTo()));
                     request.getRequestDispatcher("/meals.jsp").forward(request, response);
                     break;
             }
